@@ -1,0 +1,281 @@
+--从学生基本信息表中抽取毕业生信息
+CREATE OR REPLACE VIEW BYS_XSJBXXB AS
+SELECT DQSZJ+XZ BYSJ,XH,XM,XB,XY,ZYMC,XZB,SFZX,（CASE WHEN SFZX='否' THEN YDLB ELSE '' END）YDLB  FROM XSJBXXB WHERE  DQSZJ + XZ = (select (case when to_number(to_char(sysdate,'MM')) <=7 then to_number(to_char(sysdate,'YYYY')) else to_number(to_char(sysdate,'YYYY'))+1 end ) from dual) ORDER BY XY,ZYMC,XZB,SFZX,XH
+
+
+
+
+--从成绩表中抽取毕业生成绩，并转换为数字
+CREATE OR REPLACE VIEW BYS_CJB1 AS
+SELECT XN,XQ,XKKH,XH,KCMC,kcxz,XF,
+       ZSCJ,
+       (CASE WHEN ZSCJ>=60 THEN (ZSCJ-50)/10 ELSE 0 END ) JD_zk,
+       BKCJ,
+       ( CASE WHEN  BKCJ IN (SELECT CJ FROM CJDZB) THEN (SELECT DYCJ FROM CJDZB A WHERE A.CJ=B.BKCJ) ELSE TO_NUMBER(BKCJ) END) BKCJ_NUM,
+
+       CXCJ,
+       ( CASE WHEN CXCJ IN (SELECT CJ FROM CJDZB) THEN (SELECT DYCJ FROM CJDZB A WHERE A.CJ=B.CXCJ)  ELSE  TO_NUMBER(CXCJ) END ) CXCJ_NUM,
+
+       CXBJ
+       FROM CJB B  WHERE XH IN ( SELECT XH FROM BYS_XSJBXXB)
+
+
+
+
+--正考、补考、重修取最高绩点
+CREATE VIEW BYS_CJB2 AS 
+SELECT A.*,GREATEST(TO_NUMBER(JD1),TO_NUMBER(JD2),TO_NUMBER(JD3)) JD  FROM BYS_CJB1 A;
+
+
+
+
+--创建毕业审核项目总表
+CREATE TABLE  bys_re AS SELECT * FROM bys_xsjbxxb
+ALTER TABLE bys_re ADD (jd NUMBER(3,2),gk NUMBER(2) DEFAULT 0,tyk NUMBER(2) DEFAULT 0,ggbxk NUMBER(3) DEFAULT 0,zybxk NUMBER(3) DEFAULT 0,gxk NUMBER(2) DEFAULT 0,gxkxf NUMBER(3,1) DEFAULT 0,zxk NUMBER(3) DEFAULT 0,zxkxf  NUMBER(4,1) DEFAULT 0,zhjnxf  NUMBER(2) DEFAULT 0,bylw NUMBER(1) DEFAULT 0，kcxfjd NUMBER DEFAULT 0,zxf NUMBER DEFAULT 0);
+
+
+
+
+--PRO_BYS_TABLES
+CREATE OR REPLACE PROCEDURE PRO_BYS_TABLES AUTHID CURRENT_USER AS
+  VIEWCOUNTI  NUMBER;
+  VIEWCOUNTII NUMBER;
+  TABLECOUNT  NUMBER;
+  XSVIEW      VARCHAR(20);
+  CJVIEW      VARCHAR2(20);
+  RESULTTABLE VARCHAR2(20);
+
+BEGIN
+
+  --赋值 视图 和 表 名称
+  XSVIEW      := 'bys_xsjbxxb';
+  CJVIEW      := 'bys_cjb';
+  RESULTTABLE := 'bys_re';
+
+  --检查视图和表是否存在，存在则删除   
+  SELECT COUNT(1)
+    INTO VIEWCOUNTI
+    FROM USER_VIEWS
+   WHERE VIEW_NAME = UPPER(XSVIEW);
+  SELECT COUNT(1)
+    INTO VIEWCOUNTII
+    FROM USER_VIEWS
+   WHERE VIEW_NAME = UPPER(CJVIEW);
+  SELECT COUNT(1)
+    INTO TABLECOUNT
+    FROM USER_TABLES
+   WHERE TABLE_NAME = UPPER(RESULTTABLE);
+  IF VIEWCOUNTI = 1 THEN
+    EXECUTE IMMEDIATE 'drop view ' || XSVIEW || '';
+  END IF;
+  IF VIEWCOUNTII = 1 THEN
+    EXECUTE IMMEDIATE 'drop view ' || CJVIEW || '';
+  END IF;
+  IF TABLECOUNT = 1 THEN
+    EXECUTE IMMEDIATE 'drop table ' || RESULTTABLE || '';
+  END IF;
+
+--创建毕业生信息表（含学籍异动信息）
+  EXECUTE IMMEDIATE 'CREATE VIEW ' || XSVIEW || ' AS
+                    SELECT DQSZJ+XZ BYSJ,
+                           XH,
+                           XM,
+                           XB,
+                           XY,
+                           ZYMC,
+                           XZB,
+                           SFZX,
+                          （CASE WHEN SFZX=''否'' THEN YDLB ELSE '''' END）YDLB  
+                    FROM XSJBXXB 
+                    WHERE 
+                    DQSZJ + XZ = 
+                          (select (case when to_number(to_char(sysdate,''MM'')) <=7 then to_number(to_char(sysdate,''YYYY'')) else to_number(to_char(sysdate,''YYYY''))+1 end ) 
+                          from dual) 
+                    ORDER BY XY,ZYMC,XZB,SFZX,XH';
+
+--创建毕业生成绩表（正考、补考、重修转数字格式）
+  EXECUTE IMMEDIATE 'CREATE VIEW ' || CJVIEW || ' AS
+                    SELECT XN,XQ,XKKH,XH,KCMC,kcxz,XF,
+                           ZSCJ,
+                           (CASE WHEN ZSCJ>=60 THEN (ZSCJ-50)/10 ELSE 0 END ) JD_zk,
+                           BKCJ,
+                           ( CASE WHEN  BKCJ IN (SELECT CJ FROM CJDZB) THEN (SELECT DYCJ FROM CJDZB A WHERE A.CJ=B.BKCJ) ELSE TO_NUMBER(BKCJ) END) BKCJ_NUM,
+                           CXCJ,
+                           ( CASE WHEN CXCJ IN (SELECT CJ FROM CJDZB) THEN (SELECT DYCJ FROM CJDZB A WHERE A.CJ=B.CXCJ)  ELSE  TO_NUMBER(CXCJ) END ) CXCJ_NUM,
+                           CXBJ
+                     FROM CJB B  
+                     WHERE XH IN ( SELECT XH FROM BYS_XSJBXXB) AND (FXBJ IS NULL OR FXBJ = ''0'')';
+  COMMIT;
+  
+--创建存放毕业生成绩审核各项结果的总表
+  EXECUTE IMMEDIATE 'CREATE TABLE  ' || RESULTTABLE || ' AS SELECT * FROM bys_xsjbxxb';
+  EXECUTE IMMEDIATE 'ALTER TABLE ' || RESULTTABLE || ' 
+                    ADD 
+                    (jd NUMBER(3,2),
+                    gk NUMBER(2) DEFAULT 0,
+                    tyk NUMBER(2) DEFAULT 0,
+                    ggbxk NUMBER(3) DEFAULT 0,
+                    zybxk NUMBER(3) DEFAULT 0,
+                    gxk NUMBER(2) DEFAULT 0,
+                    gxkxf NUMBER(3,1) DEFAULT 0,
+                    zxk NUMBER(3) DEFAULT 0,
+                    zxkxf  NUMBER(4,1) DEFAULT 0,
+                    zhjnxf  NUMBER(2) DEFAULT 0,
+                    bylw NUMBER(1) DEFAULT 0，
+                    kcxfjd NUMBER DEFAULT 0,
+                    zxf NUMBER DEFAULT 0)';
+  COMMIT;
+END;
+/
+
+
+
+
+--PRO_test
+CREATE OR REPLACE PROCEDURE PRO_test Authid Current_User IS
+
+
+       --创建游标，检索视图bys_cjb1（已将所有成绩转换成数字），将成绩转换成绩点，并取正考、补考、重修绩点的最高值
+        CURSOR c_bys IS 
+        SELECT  
+        xkkh,xh,kcmc,kcxz,xf,GREATEST(jd_ZK,NVL(jd_BK,0),NVL(jd_CX,0)) jd
+        FROM 
+         (SELECT XKKH,
+               XH,
+               KCMC,
+               KCXZ,
+               XF,
+               jd_zk,
+               (CASE WHEN bkcj_num>=60 THEN 1 ELSE 0 END) jd_bk,
+               (CASE WHEN CXCJ_NUM >= 60 THEN (CXCJ_NUM-50)/10 ELSE 0 END) jd_cx 
+        FROM BYS_CJB1 );--WHERE REGEXP_LIKE(XH,'2015000[0-9]{3}'));
+        
+        --其他变量
+
+        
+        --遍历成绩所用变量        
+        v_xkkh bys_cjb1.xkkh%TYPE;
+        V_XH BYS_CJB1.XH%TYPE;
+        V_KCMC BYS_CJB1.KCMC%TYPE;
+        V_KCXZ BYS_CJB1.KCXZ%TYPE;
+        V_XF BYS_CJB1.XF%TYPE;
+        v_jd NUMBER;
+        --V_ZK NUMBER;
+        --V_BK NUMBER;
+        --V_CX NUMBER;
+        --V_CXBJ BYS_CJB1.CXBJ%TYPE;
+        
+
+        
+        
+
+BEGIN
+
+     --重新生成表 bys_re中的数据（用于保存毕业资格审核所有项目的汇总表）
+     
+     DELETE FROM bys_re;
+     INSERT INTO bys_re(bysj,xh,xm,xb,xy,zymc,xzb,sfzx,ydlb) SELECT * FROM bys_xsjbxxb;
+     COMMIT;
+     
+     /*
+     --按照视图bys_xsjbxxb中的内容更新表 bys_re（用于保存毕业资格审核所有项目的汇总表）
+     INSERT INTO bys_re 
+     (bysj,xh,xm,xb,xy,zymc,xzb,sfzx,ydlb) 
+     SELECT * FROM bys_xsjbxxb 
+     WHERE NOT EXISTS (SELECT 1 FROM bys_re WHERE bys_re.xh = bys_xsjbxxb.xh);
+     COMMIT;
+     DELETE FROM bys_re 
+     WHERE NOT EXISTS (SELECT 1 FROM bys_xsjbxxb WHERE bys_re.xh = bys_xsjbxxb.xh);
+     COMMIT;
+     UPDATE bys_re SET  jd='',gk=0,tyk=0,ggbxk=0, zybxk=0,gxk=0,gxkxf=0,zxk=0,zxkxf=0,zhjnxf=0,bylw=0;
+     */
+
+     --打开游标
+     OPEN c_bys;
+     
+     
+LOOP
+    --取 选课课号、学号、课程名称、课程性质、学分、课程绩点
+    FETCH c_bys INTO v_xkkh,v_xh,v_kcmc,v_kcxz,v_xf,v_jd;
+
+    
+    --统计挂科数
+    IF v_jd =0 THEN
+    UPDATE bys_re SET bys_re.gk = bys_re.gk +1 WHERE bys_re.xh=v_xh;
+        IF 
+           v_kcxz IN ('公共必修课','通识必修课','必修','英语必修课','专业必修课','专业方向必修课','专业基础必修课','专业选修课')
+        THEN 
+           UPDATE bys_re SET bys_re.zxf = bys_re.zxf +v_xf WHERE bys_re.xh=v_xh;
+        END IF;
+    
+    ELSE
+        --体育通过门数
+        IF (v_kcmc like '健康悦跑%' or v_kcmc like '健美操%' or
+                               v_kcmc like '毽球%' or v_kcmc like '篮球%' or
+                               v_kcmc like '轮滑%' or v_kcmc like '排球%' or
+                               v_kcmc like '攀岩%' or v_kcmc like '乒乓球%' or
+                               v_kcmc like '跆拳道%' or v_kcmc like '体育%' or
+                               v_kcmc like '网球%' or v_kcmc like '游泳%' or
+                               v_kcmc like '瑜伽%' or v_kcmc like '羽毛球%' or
+                               v_kcmc like '足球%' or v_kcmc = '体质健康课' or
+                               v_kcmc = '田径训练队' or v_kcmc = '武术训练队' or
+                               v_kcmc = '康复保健')
+          THEN
+        UPDATE bys_re SET bys_re.tyk = bys_re.tyk + 1 WHERE bys_re.xh = v_xh;
+        END IF;
+        
+    
+    
+        
+        IF v_kcxz='综合技能训练' THEN
+        UPDATE bys_re SET bys_re.zhjnxf = bys_re.zhjnxf + v_xf WHERE bys_re.xh=v_xh;
+            
+        ELSIF v_kcxz IN ('通识选修课','公共选修课') THEN
+        UPDATE bys_re SET bys_re.gxk = bys_re.gxk +1,bys_re.gxkxf=bys_re.gxkxf + v_xf WHERE bys_re.xh=v_xh;
+        
+        ELSIF v_kcmc='毕业论文' THEN
+        UPDATE bys_re SET bys_re.bylw = 1 WHERE bys_re.xh=v_xh;
+        
+        ELSE
+              
+              IF v_KCXZ IN ('公共必修课','通识必修课','必修','英语必修课') THEN
+              UPDATE bys_re SET bys_re.ggbxk = bys_re.ggbxk +1,
+                                bys_re.kcxfjd = bys_re.kcxfjd + v_xf*v_jd,
+                                bys_re.zxf = bys_re.zxf +v_xf
+              WHERE bys_re.xh = v_xh;
+              --UPDATE bys_re SET bys_re.kcxfjd = bys_re.kcxfjd + v_xf*v_jd WHERE bys_re.xh=v_xh;
+              --UPDATE bys_re SET bys_re.zxf = bys_re.zxf +v_xf WHERE bys_re.xh=v_xh;
+                                          
+              ELSIF v_kcxz IN ('专业必修课','专业方向必修课','专业基础必修课') THEN
+              UPDATE bys_re SET bys_re.zybxk = bys_re.zybxk +1,
+                                bys_re.kcxfjd = bys_re.kcxfjd + v_xf*v_jd,
+                                bys_re.zxf = bys_re.zxf +v_xf
+              WHERE bys_re.xh = v_xh;
+              --UPDATE bys_re SET bys_re.kcxfjd = bys_re.kcxfjd + v_xf*v_jd WHERE bys_re.xh=v_xh;
+              --UPDATE bys_re SET bys_re.zxf = bys_re.zxf +v_xf WHERE bys_re.xh=v_xh;
+              
+              ELSIF v_kcxz ='专业选修课' THEN
+              UPDATE bys_re SET bys_re.zxk = bys_re.zxk +1,
+                                bys_re.zxkxf = bys_re.zxkxf + v_xf,
+                                bys_re.kcxfjd = bys_re.kcxfjd + v_xf*v_jd,
+                                bys_re.zxf = bys_re.zxf +v_xf
+              WHERE bys_re.xh = v_xh;
+              --UPDATE bys_re SET bys_re.kcxfjd = bys_re.kcxfjd + v_xf*v_jd WHERE bys_re.xh=v_xh;
+              --UPDATE bys_re SET bys_re.zxf = bys_re.zxf +v_xf WHERE bys_re.xh=v_xh;
+              
+              END IF;       
+              COMMIT;
+        END IF;
+    END IF;
+    COMMIT;
+    EXIT WHEN c_bys%NOTFOUND;
+END LOOP;
+CLOSE c_bys;
+UPDATE bys_re SET jd = (CASE WHEN zxf=0 THEN 0 ELSE round(kcxfjd/zxf,2) END);
+COMMIT;  
+END;
+/
+
+
+
+
