@@ -1,2 +1,2 @@
 # Graduate_Audit_plsql
-pl/sl毕业生审核
+pl/sql毕业生审核
